@@ -60,7 +60,7 @@ export interface ChatMessage {
 export enum NavigationTab {
   DASHBOARD = 'dashboard',
   MEDICATIONS = 'medications',
-  SCAN = 'scan',
+  HEALTH_SCANNER = 'health_scanner',
   AI_CONSULT = 'ai_consult',
   INSIGHTS = 'insights',
   PROFILE = 'profile',

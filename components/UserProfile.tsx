@@ -16,21 +16,28 @@ import {
   Calendar,
   Activity,
   Droplet,
-  Info,
+  Shield,
+  LogOut,
   Clock,
-  Shield
+  Send,
+  Loader2,
+  Wifi,
+  BellRing
 } from 'lucide-react';
 import { UserProfile as UserProfileType } from '../types';
+import { dbService } from '../services/dbService';
 
 interface UserProfileProps {
   profile: UserProfileType;
   onUpdate: (profile: UserProfileType) => void;
+  onLogout?: () => void;
 }
 
-const UserProfile: React.FC<UserProfileProps> = ({ profile, onUpdate }) => {
+const UserProfile: React.FC<UserProfileProps> = ({ profile, onUpdate, onLogout }) => {
   const [formData, setFormData] = useState<UserProfileType>({ ...profile });
   const [showSavedToast, setShowSavedToast] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isEmailing, setIsEmailing] = useState(false);
 
   const handleSave = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -38,6 +45,30 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onUpdate }) => {
     setShowSavedToast(true);
     setIsEditing(false);
     setTimeout(() => setShowSavedToast(false), 3000);
+  };
+
+  const handleSendLoginDetails = async () => {
+    setIsEmailing(true);
+    try {
+      const body = `Hello ${profile.name},\n\nHere are your requested identity details from Healthcare AI:\n\nProfile ID: ${profile.id}\nRegistered Email: ${profile.email}\nPhone: ${profile.phone || 'Not provided'}\n\nPlease keep these details secure.\n\nBest,\nHealthcare AI Team`;
+      await dbService.sendEmail('Healthcare AI: Your Account Details', body, profile.email);
+      alert('Login details and profile summary sent to your email.');
+    } catch (err) {
+      alert('Failed to send email. Check your connection.');
+    } finally {
+      setIsEmailing(false);
+    }
+  };
+
+  const requestNotificationPermission = async () => {
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        alert('Notifications connected! You will now receive alerts for your medications.');
+      } else {
+        alert('Notification permission denied.');
+      }
+    }
   };
 
   const getInitials = (name: string) => {
@@ -82,9 +113,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onUpdate }) => {
       </header>
 
       {!isEditing ? (
-        /* VIEW MODE: DIGITAL HEALTH ID */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main ID Card */}
           <div className="lg:col-span-2 relative group overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[40px] transform transition-transform group-hover:scale-[1.01] duration-500"></div>
             <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-20 -mt-20 blur-3xl"></div>
@@ -102,10 +131,14 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onUpdate }) => {
                     </div>
                   </div>
                 </div>
-                <div className="hidden sm:block text-right">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-200">Patient ID</p>
-                  <p className="font-mono text-sm opacity-60">#HX-{profile.email.split('@')[0].toUpperCase()}</p>
-                </div>
+                <button 
+                  onClick={handleSendLoginDetails}
+                  disabled={isEmailing}
+                  className="p-3 bg-white/20 backdrop-blur-md rounded-2xl hover:bg-white/30 transition-all active:scale-90"
+                  title="Send profile to email"
+                >
+                  {isEmailing ? <Loader2 size={24} className="animate-spin" /> : <Send size={24} />}
+                </button>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 py-8 border-y border-white/10 my-6">
@@ -151,7 +184,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onUpdate }) => {
             </div>
           </div>
 
-          {/* Side Vitals Summary */}
           <div className="space-y-4">
              <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm flex items-center justify-between transition-all hover:shadow-md">
                <div className="flex items-center gap-4">
@@ -160,47 +192,67 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onUpdate }) => {
                  </div>
                  <div>
                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Alarms</p>
-                   <h4 className="font-bold text-slate-800">{profile.notifications.enabled ? 'Enabled' : 'Disabled'}</h4>
+                   <h4 className="font-bold text-slate-800">{profile.notifications?.enabled ? 'Enabled' : 'Disabled'}</h4>
                  </div>
                </div>
-               <div className={`w-3 h-3 rounded-full ${profile.notifications.enabled ? 'bg-emerald-500' : 'bg-slate-300'} animate-pulse`}></div>
+               <div className={`w-3 h-3 rounded-full ${profile.notifications?.enabled ? 'bg-emerald-500' : 'bg-slate-300'} animate-pulse`}></div>
              </div>
 
              <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm transition-all hover:shadow-md">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
-                    <Clock size={20} />
+                    <Wifi size={20} />
                   </div>
-                  <h4 className="font-bold text-slate-800">System Logs</h4>
+                  <h4 className="font-bold text-slate-800">System Connectivity</h4>
                 </div>
                 <div className="space-y-3">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400 font-medium">Last Profile Sync</span>
-                    <span className="text-slate-700 font-bold">Today, 14:20</span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400 font-medium">Data Integrity</span>
-                    <span className="text-emerald-600 font-bold">100% Secure</span>
-                  </div>
+                  <button 
+                    onClick={requestNotificationPermission}
+                    className="w-full flex justify-between items-center text-xs group"
+                  >
+                    <span className="text-slate-400 font-medium flex items-center gap-2">
+                      <BellRing size={14} className="group-hover:text-blue-500 transition-colors" /> Browser Notifications
+                    </span>
+                    <span className={`font-bold ${Notification.permission === 'granted' ? 'text-emerald-600' : 'text-blue-600 underline'}`}>
+                      {Notification.permission === 'granted' ? 'Connected' : 'Connect'}
+                    </span>
+                  </button>
+                  <button 
+                    onClick={handleSendLoginDetails}
+                    className="w-full flex justify-between items-center text-xs group"
+                  >
+                    <span className="text-slate-400 font-medium flex items-center gap-2">
+                      <Mail size={14} className="group-hover:text-blue-500 transition-colors" /> Email Dispatcher
+                    </span>
+                    <span className="text-emerald-600 font-bold">Active</span>
+                  </button>
                 </div>
              </div>
 
-             <div className="bg-slate-900 p-6 rounded-[32px] text-white flex items-center justify-between group cursor-pointer hover:bg-slate-800 transition-all">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center">
-                    <Stethoscope size={24} className="text-blue-400" />
+             {onLogout && (
+               <button 
+                onClick={() => {
+                  if (confirm("Sign out of your secure medical database?")) {
+                    onLogout();
+                  }
+                }}
+                className="w-full bg-red-50 p-6 rounded-[32px] text-red-600 flex items-center justify-between group cursor-pointer hover:bg-red-100 transition-all border border-red-100"
+               >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-sm">
+                      <LogOut size={24} />
+                    </div>
+                    <div className="text-left">
+                      <h4 className="font-black text-sm uppercase tracking-tight">Sign Out</h4>
+                      <p className="text-[10px] font-bold opacity-60">Switch Users</p>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="font-bold">Medical ID</h4>
-                    <p className="text-xs text-slate-400">Emergency Access</p>
-                  </div>
-                </div>
-                <ChevronRight size={20} className="text-slate-500 group-hover:translate-x-1 transition-transform" />
-             </div>
+                  <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
+               </button>
+             )}
           </div>
         </div>
       ) : (
-        /* EDIT MODE: SETTINGS FORM */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-8">
             <section className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm animate-in zoom-in-95 duration-300">
@@ -237,8 +289,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onUpdate }) => {
                     <input 
                       type="email" 
                       value={formData.email}
-                      onChange={e => setFormData({ ...formData, email: e.target.value })}
-                      className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-2 ring-blue-500/20 focus:bg-white transition-all font-medium"
+                      disabled
+                      className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl opacity-60 cursor-not-allowed font-medium"
                     />
                   </div>
                 </div>
@@ -312,14 +364,14 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onUpdate }) => {
                 <h3 className="text-xl font-black text-slate-800">Alerts</h3>
               </div>
               <button 
-                onClick={() => setFormData({ ...formData, notifications: { enabled: !formData.notifications.enabled } })}
+                onClick={() => setFormData({ ...formData, notifications: { enabled: !formData.notifications?.enabled } })}
                 className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-all ${
-                  formData.notifications.enabled ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-100 text-slate-400'
+                  formData.notifications?.enabled ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-100 text-slate-400'
                 }`}
               >
                 <span className="font-bold">Push Notifications</span>
-                <div className={`w-10 h-6 rounded-full transition-all flex items-center px-1 ${formData.notifications.enabled ? 'bg-blue-600' : 'bg-slate-300'}`}>
-                  <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-all ${formData.notifications.enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                <div className={`w-10 h-6 rounded-full transition-all flex items-center px-1 ${formData.notifications?.enabled ? 'bg-blue-600' : 'bg-slate-300'}`}>
+                  <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-all ${formData.notifications?.enabled ? 'translate-x-4' : 'translate-x-0'}`} />
                 </div>
               </button>
             </section>
@@ -330,11 +382,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ profile, onUpdate }) => {
                 <h3 className="text-xl font-black">Data Safety</h3>
               </div>
               <p className="text-xs text-slate-400 leading-relaxed mb-6">
-                Your health records are stored in your secure health database. Updates take effect immediately across all connected devices.
+                Your health records are stored in your secure health database. Updates take effect immediately.
               </p>
-              <button className="w-full py-4 bg-white/10 hover:bg-white/20 rounded-2xl text-sm font-bold transition-all flex items-center justify-between px-6">
-                Privacy Settings <ChevronRight size={16} />
-              </button>
             </section>
           </div>
         </div>

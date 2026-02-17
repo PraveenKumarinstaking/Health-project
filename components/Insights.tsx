@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState } from 'react';
 import { 
   BarChart, 
@@ -28,9 +29,13 @@ import {
   History,
   Pill,
   HeartPulse,
-  X
+  X,
+  Mail,
+  Loader2
 } from 'lucide-react';
 import { Medication, AdherenceRecord, HealthLog } from '../types';
+import { dbService } from '../services/dbService';
+import { analyzeHealthQuery } from '../services/geminiService';
 
 interface InsightsProps {
   medications: Medication[];
@@ -44,6 +49,8 @@ const COLORS = ['#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e'];
 const Insights: React.FC<InsightsProps> = ({ medications, adherence, healthLogs, onExport }) => {
   const [selectedMetric, setSelectedMetric] = useState<'blood_pressure' | 'glucose' | 'weight' | 'mood'>('blood_pressure');
   const [historySearch, setHistorySearch] = useState('');
+  const [isEmailing, setIsEmailing] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   // Adherence Chart Data
   const adherenceData = useMemo(() => {
@@ -67,6 +74,33 @@ const Insights: React.FC<InsightsProps> = ({ medications, adherence, healthLogs,
       };
     });
   }, [adherence, medications]);
+
+  const handleEmailReport = async () => {
+    setIsEmailing(true);
+    setEmailStatus('idle');
+    try {
+      const reportContext = `Generate a detailed health progress report summary for a patient. 
+      Medications tracked: ${medications.map(m => m.name).join(', ')}. 
+      Weekly average adherence: ${Math.round(adherenceData.reduce((a, b) => a + b.percentage, 0) / 7)}%. 
+      Vitals logged: ${healthLogs.length} records. 
+      Format this as a professional medical report summary that can be shared with a doctor.`;
+      
+      const report = await analyzeHealthQuery(reportContext, []);
+      const success = await dbService.sendEmail('Healthcare AI: Your Comprehensive Health Report', report, dbService.activeEmail);
+      
+      if (success) {
+        setEmailStatus('success');
+        setTimeout(() => setEmailStatus('idle'), 3000);
+      } else {
+        throw new Error();
+      }
+    } catch (err) {
+      setEmailStatus('error');
+      setTimeout(() => setEmailStatus('idle'), 3000);
+    } finally {
+      setIsEmailing(false);
+    }
+  };
 
   // Unified Searchable History (Adherence + Logs)
   const unifiedHistory = useMemo(() => {
@@ -168,13 +202,20 @@ const Insights: React.FC<InsightsProps> = ({ medications, adherence, healthLogs,
         </div>
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
           <button 
+            disabled={isEmailing}
+            onClick={handleEmailReport}
+            className={`flex-1 md:flex-none px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-sm active:scale-95 ${
+              emailStatus === 'success' ? 'bg-emerald-500 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            {isEmailing ? <Loader2 size={18} className="animate-spin" /> : emailStatus === 'success' ? <CheckCircle size={18} /> : <Mail size={18} />}
+            {emailStatus === 'success' ? 'Report Sent' : 'Email Report'}
+          </button>
+          <button 
             onClick={onExport}
             className="flex-1 md:flex-none px-4 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-50 transition-all shadow-sm active:scale-95"
           >
             <Download size={18} /> Full Export
-          </button>
-          <button className="flex-1 md:flex-none px-4 py-2.5 bg-blue-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 active:scale-95">
-            <Share2 size={18} /> Physician View
           </button>
         </div>
       </div>
@@ -403,8 +444,11 @@ const Insights: React.FC<InsightsProps> = ({ medications, adherence, healthLogs,
             <button className={`flex-1 py-4 rounded-2xl font-bold transition-all shadow-lg active:scale-95 ${lowStockMedsList.length > 0 ? 'bg-white text-red-900 hover:bg-red-50' : 'bg-blue-600 text-white hover:bg-blue-500 shadow-blue-900/40'}`}>
               {lowStockMedsList.length > 0 ? 'Request Urgent Refills' : 'Auto-Refill Request'}
             </button>
-            <button className="flex-1 py-4 bg-white/10 hover:bg-white/20 border border-white/20 rounded-2xl font-bold transition-all active:scale-95">
-              Copy Medical Summary
+            <button 
+              onClick={handleEmailReport}
+              className="flex-1 py-4 bg-white/10 hover:bg-white/20 border border-white/20 rounded-2xl font-bold transition-all active:scale-95"
+            >
+              Email My Brief
             </button>
           </div>
         </div>

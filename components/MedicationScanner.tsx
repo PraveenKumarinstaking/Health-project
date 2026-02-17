@@ -1,22 +1,26 @@
-
 import React, { useState, useRef, useCallback } from 'react';
-import { Camera, X, Check, Loader2, RefreshCw, AlertCircle, Info, Plus } from 'lucide-react';
-import { scanMedicationImage } from '../services/geminiService';
+import { Camera, X, Check, RefreshCw, AlertCircle, Info, Plus, Image as ImageIcon, Upload, Stethoscope, MessageSquare, Loader2, Maximize2 } from 'lucide-react';
+import { analyzeHealthImage } from '../services/geminiService';
 import { Medication } from '../types';
 
 interface ScannedResult {
-  name: string;
-  dosage: string;
-  usage: string;
-  instructions: string;
+  name?: string;
+  dosage?: string;
+  usage?: string;
+  instructions?: string;
+  condition?: string;
+  severity?: string;
+  description?: string;
+  nextSteps?: string;
 }
 
-interface MedicationScannerProps {
-  // Fix: Omit profileId as it is managed by the App component
+interface HealthScannerProps {
   onAddMedication?: (med: Omit<Medication, 'id' | 'profileId'>) => void;
+  onConsultAI?: (query: string, image?: string) => void;
 }
 
-const MedicationScanner: React.FC<MedicationScannerProps> = ({ onAddMedication }) => {
+const HealthScanner: React.FC<HealthScannerProps> = ({ onAddMedication, onConsultAI }) => {
+  const [scanMode, setScanMode] = useState<'medication' | 'symptom' | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [result, setResult] = useState<ScannedResult | null>(null);
@@ -26,17 +30,25 @@ const MedicationScanner: React.FC<MedicationScannerProps> = ({ onAddMedication }
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const startCamera = async () => {
+  const startCamera = async (mode: 'medication' | 'symptom') => {
+    setScanMode(mode);
+    setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } 
+      });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         setCameraActive(true);
-        setError(null);
       }
     } catch (err) {
-      setError('Could not access camera. Please check permissions.');
+      setError('Camera access denied. Please allow permissions or upload a photo.');
     }
   };
 
@@ -49,203 +61,283 @@ const MedicationScanner: React.FC<MedicationScannerProps> = ({ onAddMedication }
   };
 
   const capturePhoto = useCallback(() => {
-    if (videoRef.current && canvasRef.current) {
+    if (videoRef.current && canvasRef.current && scanMode) {
       const context = canvasRef.current.getContext('2d');
       if (context) {
         canvasRef.current.width = videoRef.current.videoWidth;
         canvasRef.current.height = videoRef.current.videoHeight;
         context.drawImage(videoRef.current, 0, 0);
-        const dataUrl = canvasRef.current.toDataURL('image/jpeg');
+        const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.8);
         const base64 = dataUrl.split(',')[1];
         setCapturedImage(dataUrl);
-        processImage(base64);
+        processImage(base64, scanMode);
         stopCamera();
       }
     }
-  }, []);
+  }, [scanMode]);
 
-  const processImage = async (base64: string) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, mode: 'medication' | 'symptom') => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setScanMode(mode);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        setCapturedImage(dataUrl);
+        const base64 = dataUrl.split(',')[1];
+        processImage(base64, mode);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const processImage = async (base64: string, mode: 'medication' | 'symptom') => {
     setIsScanning(true);
     setResult(null);
-    setIsAdded(false);
+    setError(null);
     try {
-      const analysis = await scanMedicationImage(base64);
+      const analysis = await analyzeHealthImage(base64, mode);
       setResult(analysis);
     } catch (err) {
-      setError('Failed to analyze the medication. Please try a clearer picture.');
+      setError('Analysis failed. Please try a clearer image.');
     } finally {
       setIsScanning(false);
     }
   };
 
   const handleAddToSchedule = () => {
-    if (result && onAddMedication) {
-      // Fix: Object structure now correctly matches Omit<Medication, 'id' | 'profileId'>
+    if (result && result.name && onAddMedication) {
       onAddMedication({
         name: result.name,
-        dosage: result.dosage,
+        dosage: result.dosage || 'Unknown',
         frequency: 'Once Daily',
         timeOfDay: ['08:00'],
-        instructions: result.instructions || result.usage,
+        instructions: result.instructions || result.usage || 'N/A',
         remaining: 30,
         total: 30,
         reminders: [{
           id: Math.random().toString(36).substr(2, 9),
           time: '08:00',
           enabled: true,
-          message: `Time for your ${result.name}`
+          message: `Take your ${result.name}`
         }]
       });
       setIsAdded(true);
     }
   };
 
+  const handleDiscussWithAI = () => {
+    if (onConsultAI && capturedImage) {
+      const context = scanMode === 'medication' 
+        ? `I scanned ${result?.name}. Can you explain its uses and risks?`
+        : `I scanned a symptom: ${result?.condition}. What does this mean?`;
+      onConsultAI(context, capturedImage);
+    }
+  };
+
   const resetScanner = () => {
+    stopCamera();
     setCapturedImage(null);
     setResult(null);
     setError(null);
     setIsAdded(false);
-    startCamera();
+    setCameraActive(false);
+    setScanMode(null);
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="text-center space-y-2">
-        <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Smart Med Scanner</h2>
-        <p className="text-slate-500">Scan your medication bottle to automatically extract details</p>
+    <div className="max-w-3xl mx-auto space-y-6">
+      <div className="text-center">
+        <h2 className="text-2xl font-bold text-slate-900">Health Scanner</h2>
+        <p className="text-slate-500 text-sm">Real-time medication and symptom analysis</p>
       </div>
 
-      <div className="relative aspect-[4/3] bg-slate-900 rounded-3xl overflow-hidden border-4 border-white dark:border-slate-800 shadow-2xl">
+      <div className="card aspect-video relative overflow-hidden bg-slate-100 flex items-center justify-center border-2 border-slate-200 shadow-xl group">
         {!cameraActive && !capturedImage && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-slate-400">
-            <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center">
-              <Camera size={40} />
+          <div className="p-8 w-full flex flex-col items-center gap-8 animate-in fade-in duration-300">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-xl">
+              <button 
+                onClick={() => startCamera('medication')}
+                className="group p-8 bg-white border border-slate-200 rounded-2xl hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/10 transition-all text-center flex flex-col items-center gap-4"
+              >
+                <div className="p-4 bg-blue-50 text-blue-600 rounded-xl group-hover:scale-110 transition-transform">
+                  <Camera size={32} />
+                </div>
+                <div>
+                  <span className="text-base font-bold block text-slate-900">Scan Medication</span>
+                  <span className="text-xs text-slate-400 font-medium">Identify pills and labels</span>
+                </div>
+              </button>
+              
+              <button 
+                onClick={() => startCamera('symptom')}
+                className="group p-8 bg-white border border-slate-200 rounded-2xl hover:border-indigo-500 hover:shadow-lg hover:shadow-indigo-500/10 transition-all text-center flex flex-col items-center gap-4"
+              >
+                <div className="p-4 bg-indigo-50 text-indigo-600 rounded-xl group-hover:scale-110 transition-transform">
+                  <Stethoscope size={32} />
+                </div>
+                <div>
+                  <span className="text-base font-bold block text-slate-900">Analyze Symptom</span>
+                  <span className="text-xs text-slate-400 font-medium">Evaluate skin and conditions</span>
+                </div>
+              </button>
             </div>
-            <button 
-              onClick={startCamera}
-              className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
-            >
-              Open Camera
-            </button>
+            
+            <div className="flex flex-col items-center gap-2">
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="text-sm font-semibold text-slate-500 hover:text-blue-600 transition-standard flex items-center gap-2 px-4 py-2 hover:bg-white rounded-lg"
+              >
+                <Upload size={16} /> or upload from gallery
+              </button>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Supports JPG, PNG</p>
+            </div>
+            <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => handleFileUpload(e, 'medication')} />
           </div>
         )}
 
         {cameraActive && (
-          <>
-            <video 
-              ref={videoRef} 
-              autoPlay 
-              playsInline 
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 border-[40px] border-black/40 pointer-events-none">
-              <div className="w-full h-full border-2 border-dashed border-white/50 rounded-lg"></div>
+          <div className="absolute inset-0 bg-black animate-in fade-in duration-500">
+            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+            
+            {/* Viewfinder Overlays */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <div className="w-72 h-72 relative border-2 border-white/20 rounded-3xl">
+                {/* Viewfinder Corners */}
+                <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-xl"></div>
+                <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white rounded-tr-xl"></div>
+                <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white rounded-bl-xl"></div>
+                <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-xl"></div>
+                
+                {/* Scanning Animation */}
+                <div className="absolute inset-x-0 top-0 h-0.5 bg-blue-500/50 shadow-[0_0_15px_blue] animate-[scan_3s_ease-in-out_infinite]"></div>
+              </div>
+              <div className="mt-8 px-4 py-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 flex items-center gap-2">
+                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                <span className="text-white text-[10px] font-bold uppercase tracking-widest">
+                  Live {scanMode === 'medication' ? 'Medication' : 'Symptom'} Feed
+                </span>
+              </div>
             </div>
-            <div className="absolute bottom-6 inset-x-0 flex justify-center gap-4">
-              <button 
-                onClick={capturePhoto}
-                className="w-16 h-16 bg-white rounded-full border-4 border-slate-300 flex items-center justify-center shadow-lg active:scale-95 transition-transform"
-              >
-                <div className="w-12 h-12 bg-white border-2 border-slate-400 rounded-full"></div>
-              </button>
-              <button 
-                onClick={stopCamera}
-                className="absolute left-6 bottom-6 w-12 h-12 bg-black/40 text-white rounded-full flex items-center justify-center hover:bg-black/60 transition-colors backdrop-blur-sm"
-              >
+
+            <div className="absolute bottom-8 inset-x-0 flex items-center justify-center gap-8">
+              <button onClick={resetScanner} className="p-4 bg-white/10 hover:bg-white/20 rounded-full text-white backdrop-blur-md transition-all">
                 <X size={24} />
               </button>
+              
+              <button 
+                onClick={capturePhoto} 
+                className="w-20 h-20 bg-white rounded-full border-4 border-blue-600 flex items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-all"
+              >
+                <div className="w-16 h-16 bg-white border border-slate-200 rounded-full"></div>
+              </button>
+
+              <button className="p-4 bg-white/10 rounded-full text-white backdrop-blur-md opacity-50 cursor-not-allowed">
+                <Maximize2 size={24} />
+              </button>
             </div>
-          </>
+          </div>
         )}
 
-        {capturedImage && (
-          <img src={capturedImage} alt="Captured" className="w-full h-full object-cover" />
+        {capturedImage && !isScanning && (
+          <div className="absolute inset-0 bg-slate-900 flex items-center justify-center animate-in fade-in duration-300">
+            <img src={capturedImage} className="w-full h-full object-contain" />
+            <div className="absolute top-4 right-4 p-2 bg-black/50 text-white rounded-lg text-[10px] font-bold uppercase">Captured Frame</div>
+          </div>
         )}
 
         {isScanning && (
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center text-white p-10 text-center gap-4">
-            <div className="relative">
-              <Loader2 size={48} className="animate-spin text-blue-400" />
-              <RefreshCw size={20} className="absolute top-1/2 left-1/2 -translate-y-1/2 -translate-y-1/2" />
+          <div className="absolute inset-0 bg-white/95 backdrop-blur-xl flex flex-col items-center justify-center text-center p-8 z-10 animate-in fade-in duration-300">
+            <div className="relative mb-6">
+              <Loader2 className="animate-spin text-blue-600" size={64} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-8 h-8 bg-blue-50 rounded-full"></div>
+              </div>
             </div>
-            <p className="text-xl font-bold animate-pulse">Healthcare AI Analyzing...</p>
-            <p className="text-sm opacity-80 max-w-xs">Extracting medication name, dosage information, and standard instructions from the image.</p>
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Analyzing with Healthcare AI</h3>
+            <p className="text-sm text-slate-500 max-w-xs leading-relaxed">Cross-referencing global medical databases to provide accurate insights...</p>
           </div>
         )}
-
-        <canvas ref={canvasRef} className="hidden" />
       </div>
 
       {result && (
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="flex items-start justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-2xl flex items-center justify-center border border-green-100 dark:border-green-800 shadow-sm">
-                <Check size={32} />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-widest mb-1">Medication Identified</p>
-                <h3 className="text-3xl font-black text-slate-800 dark:text-white leading-tight">{result.name}</h3>
-              </div>
+        <div className="card p-8 animate-in slide-in-from-bottom-4 duration-500">
+          <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-100">
+            <div>
+              <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-3 py-1 rounded-full mb-2 inline-block">Analysis Result</span>
+              <h3 className="text-2xl font-bold text-slate-900">{scanMode === 'medication' ? result.name : result.condition}</h3>
             </div>
             <button 
-              onClick={resetScanner}
-              className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-xl transition-all"
+              onClick={resetScanner} 
+              className="p-3 bg-slate-50 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+              title="New Scan"
             >
-              <RefreshCw size={24} />
+              <RefreshCw size={20} />
             </button>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                <Info size={12} /> Dosage
-              </p>
-              <p className="text-lg font-semibold text-slate-700 dark:text-slate-200">{result.dosage}</p>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
+            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">{scanMode === 'medication' ? 'Dosage' : 'Severity'}</span>
+              <p className="font-bold text-lg text-slate-900">{scanMode === 'medication' ? result.dosage : result.severity}</p>
             </div>
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                <Info size={12} /> Common Usage
+            <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">{scanMode === 'medication' ? 'Usage Guide' : 'Medical Overview'}</span>
+              <p className="text-sm font-medium text-slate-600 leading-relaxed line-clamp-2">
+                {scanMode === 'medication' ? result.usage : result.description}
               </p>
-              <p className="text-slate-700 dark:text-slate-300 leading-relaxed text-sm font-medium">{result.usage}</p>
             </div>
           </div>
 
-          <div className="mt-6 p-6 bg-blue-50/50 dark:bg-blue-900/10 rounded-2xl border border-blue-100 dark:border-blue-900/30">
-            <p className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-2">Extracted Instructions</p>
-            <p className="text-slate-700 dark:text-slate-300 italic text-sm">{result.instructions || 'No specific instructions detected on label.'}</p>
-          </div>
-
-          <div className="mt-8 flex gap-4">
+          <div className="flex flex-col sm:flex-row gap-4">
+            {scanMode === 'medication' ? (
+              <button 
+                onClick={handleAddToSchedule} 
+                disabled={isAdded}
+                className={`flex-1 py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all ${
+                  isAdded 
+                    ? 'bg-emerald-500 text-white shadow-emerald-500/20' 
+                    : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-500/20 active:scale-95'
+                }`}
+              >
+                {isAdded ? <Check size={20} strokeWidth={3} /> : <Plus size={20} strokeWidth={3} />}
+                {isAdded ? 'Added to Schedule' : 'Add Medication'}
+              </button>
+            ) : (
+              <button 
+                onClick={handleDiscussWithAI}
+                className="flex-1 py-4 bg-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 hover:bg-indigo-700 active:scale-95 transition-all"
+              >
+                <MessageSquare size={20} strokeWidth={3} /> Discuss Symptoms
+              </button>
+            )}
             <button 
-              disabled={isAdded}
-              onClick={handleAddToSchedule}
-              className={`flex-1 py-4 rounded-2xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${
-                isAdded 
-                  ? 'bg-green-600 text-white cursor-default' 
-                  : 'bg-blue-600 text-white shadow-blue-200 hover:bg-blue-700 active:scale-95'
-              }`}
+              onClick={resetScanner} 
+              className="px-8 py-4 bg-white border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all"
             >
-              {isAdded ? <><Check size={20} /> Saved to List</> : <><Plus size={20} /> Add to Schedule</>}
-            </button>
-            <button 
-              onClick={resetScanner}
-              className="px-6 py-4 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
-            >
-              Retake
+              Cancel
             </button>
           </div>
         </div>
       )}
 
       {error && (
-        <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-2xl border border-red-100 dark:border-red-900 flex items-center gap-3">
-          <AlertCircle size={20} />
-          <p className="text-sm font-medium">{error}</p>
+        <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-4 text-red-700 text-sm font-bold animate-in shake duration-300">
+          <div className="p-2 bg-red-100 rounded-lg">
+            <AlertCircle size={20} />
+          </div>
+          {error}
         </div>
       )}
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes scan {
+          0%, 100% { top: 0; }
+          50% { top: 100%; }
+        }
+      `}} />
     </div>
   );
 };
 
-export default MedicationScanner;
+export default HealthScanner;

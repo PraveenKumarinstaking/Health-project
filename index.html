@@ -3,39 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Healthcare AI - Health Assistant</title>
+    <title>Healthcare AI - Smart Health Companion</title>
     
     <!-- Mobile App Meta Tags -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#3b82f6">
+    <meta name="theme-color" content="#ffffff">
     <meta name="format-detection" content="telephone=no">
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --surface: #ffffff;
+            --background: #f8fafc;
+        }
         body { 
-          font-family: 'Inter', sans-serif; 
+          font-family: 'Plus Jakarta Sans', sans-serif; 
           -webkit-tap-highlight-color: transparent;
-          overscroll-behavior-y: none;
+          background-color: var(--background);
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          color: #1e293b;
         }
-        .recharts-cartesian-grid-horizontal line, .recharts-cartesian-grid-vertical line {
-          stroke: #f1f5f9;
-        }
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
-        .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
-        .pb-safe {
-          padding-bottom: env(safe-area-inset-bottom);
-        }
-        .pt-safe {
-          padding-top: env(safe-area-inset-top);
+        
+        /* Professional Transitions */
+        .transition-standard { transition: all 0.2s ease-in-out; }
+        
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+        .pt-safe { padding-top: env(safe-area-inset-top); }
+
+        /* Normal Dash Styles */
+        .card {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.75rem;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
         }
     </style>
 <script type="importmap">
@@ -47,13 +57,14 @@
     "lucide-react": "https://esm.sh/lucide-react@0.475.0?external=react",
     "recharts": "https://esm.sh/recharts@2.15.0?external=react,react-dom",
     "@google/genai": "https://esm.sh/@google/genai@1.40.0",
-    "react/": "https://esm.sh/react@^19.2.4/",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.48.1",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/"
   }
 }
 </script>
 </head>
-<body class="bg-slate-50 text-slate-900 overflow-x-hidden">
+<body class="overflow-x-hidden">
     <div id="root"></div>
     <script type="module" src="index.tsx"></script>
 </body>

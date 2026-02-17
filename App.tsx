@@ -4,7 +4,7 @@ import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import Dashboard from './components/Dashboard';
 import AIConsultant from './components/AIConsultant';
-import MedicationScanner from './components/MedicationScanner';
+import HealthScanner from './components/MedicationScanner';
 import ReminderSettings from './components/ReminderSettings';
 import PrescriptionScanner from './components/PrescriptionScanner';
 import Insights from './components/Insights';
@@ -13,17 +13,16 @@ import MedicationForm from './components/MedicationForm';
 import UserProfile from './components/UserProfile';
 import HelpCenter from './components/HelpCenter';
 import LogDoseModal from './components/LogDoseModal';
+import LogVitalModal from './components/LogVitalModal';
 import Auth from './components/Auth';
 import { dbService } from './services/dbService';
 import { Medication, AdherenceRecord, NavigationTab, Reminder, HealthLog, UserProfile as UserProfileType } from './types';
 import { 
   Pill, 
-  Loader2,
   Settings,
   Plus,
-  Trash2,
-  ShieldCheck,
-  HeartPulse
+  HeartPulse,
+  WifiOff
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -36,106 +35,24 @@ const App: React.FC = () => {
   const [healthLogs, setHealthLogs] = useState<HealthLog[]>([]);
   const [allProfiles, setAllProfiles] = useState<UserProfileType[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string>('');
-
-  // UI State
+  const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
+  
+  const [aiContext, setAiContext] = useState<{ query: string, image?: string } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [isOffline, setIsOffline] = useState(false);
   const [editingReminders, setEditingReminders] = useState<Medication | null>(null);
   const [isMedicationFormOpen, setIsMedicationFormOpen] = useState(false);
+  const [isLogVitalOpen, setIsLogVitalOpen] = useState(false);
   const [logDoseMed, setLogDoseMed] = useState<Medication | null>(null);
-  
-  // Real-time Alarm State
+  const [isPrescriptionScannerOpen, setIsPrescriptionScannerOpen] = useState(false);
   const [activeAlarm, setActiveAlarm] = useState<{ med: Medication, reminder: Reminder } | null>(null);
-  const [lastNotifiedMinute, setLastNotifiedMinute] = useState<string | null>(null);
+  const [lastNotifiedMinute, setLastNotifiedMinute] = useState<string>('');
 
-  // Derived Data (Filtered by active profile)
-  const activeMedications = useMemo(() => 
-    medications.filter(m => m.profileId === activeProfileId),
-    [medications, activeProfileId]
-  );
-  const activeAdherence = useMemo(() => 
-    adherence.filter(a => a.date === new Date().toISOString().split('T')[0] && a.profileId === activeProfileId),
-    [adherence, activeProfileId]
-  );
-  const activeLogs = useMemo(() => 
-    healthLogs.filter(l => l.profileId === activeProfileId),
-    [healthLogs, activeProfileId]
-  );
   const activeProfile = useMemo(() => 
-    allProfiles.find(p => p.id === activeProfileId) || allProfiles[0] || null,
+    allProfiles.find(p => p.id === activeProfileId) || null, 
     [allProfiles, activeProfileId]
   );
 
-  const fetchData = useCallback(async () => {
-    // If no one is logged in, reset and show Auth
-    if (!dbService.activeEmail) {
-      setMedications([]);
-      setAdherence([]);
-      setHealthLogs([]);
-      setAllProfiles([]);
-      setLoading(false);
-      setIsInitialized(false);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // Check server status
-      const serverOnline = await dbService.isServerOnline();
-      setIsOffline(!serverOnline);
-
-      // Fetch all data
-      const [meds, records, logs, profile] = await Promise.all([
-        dbService.getMedications(),
-        dbService.getAdherence(),
-        dbService.getLogs(),
-        dbService.getUserProfile(),
-      ]);
-      
-      setMedications(meds || []);
-      setAdherence(records || []);
-      setHealthLogs(logs || []);
-      
-      if (profile) {
-        setAllProfiles([profile]);
-        setActiveProfileId(profile.id);
-      } else {
-        // Fallback to local profile if server returned null
-        const cachedProfile = dbService.getLocal('user_profile', null);
-        if (cachedProfile) {
-          setAllProfiles([cachedProfile]);
-          setActiveProfileId(cachedProfile.id);
-        }
-      }
-      
-      // Critical: If we have an active email, we are authenticated. 
-      // Proceed to initialization regardless of profile completeness.
-      setIsInitialized(true);
-    } catch (err: any) {
-      console.error("Fetch Data Error:", err);
-      setIsOffline(true);
-      
-      // On error, attempt to load local cache
-      const cachedProfile = dbService.getLocal('user_profile', null);
-      if (cachedProfile) {
-        setAllProfiles([cachedProfile]);
-        setActiveProfileId(cachedProfile.id);
-      }
-      
-      // If we have an email, we must allow access to the dashboard (Offline Mode)
-      if (dbService.activeEmail) {
-        setIsInitialized(true);
-      } else {
-        setIsInitialized(false);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    fetchData();
     const handleOnline = () => setIsOffline(false);
     const handleOffline = () => setIsOffline(true);
     window.addEventListener('online', handleOnline);
@@ -144,46 +61,86 @@ const App: React.FC = () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [fetchData]);
+  }, []);
 
-  // Alarm Monitoring Logic
+  // Optimized initialization for zero-latency load
+  const initializeAppData = useCallback(async () => {
+    setLoading(true);
+    
+    // Step 1: Immediate local data recovery
+    const email = dbService.activeEmail;
+    if (email && email !== 'anonymous') {
+      const cachedProfile = dbService.getLocal('user_profile', null);
+      if (cachedProfile) {
+        setAllProfiles([cachedProfile]);
+        setActiveProfileId(cachedProfile.id);
+        setMedications(dbService.getLocal('medications', []));
+        setAdherence(dbService.getLocal('adherence', []));
+        setHealthLogs(dbService.getLocal('health_logs', []));
+        setIsInitialized(true);
+        setLoading(false); 
+      }
+    }
+
+    // Step 2: Background sync (does not block UI if local cache exists)
+    try {
+      const profile = await dbService.getUserProfile();
+      if (profile) {
+        setAllProfiles([profile]);
+        setActiveProfileId(profile.id);
+        
+        const [meds, records, logs] = await Promise.all([
+          dbService.getMedications(),
+          dbService.getAdherence(),
+          dbService.getLogs()
+        ]);
+        
+        setMedications(meds);
+        setAdherence(records);
+        setHealthLogs(logs);
+        setIsInitialized(true);
+      } else if (!email || email === 'anonymous') {
+        setIsInitialized(false);
+      }
+    } catch (error) {
+      console.warn("Background sync failed. Offline mode active.");
+      setIsOffline(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!isInitialized) return;
-    const checkAlarms = () => {
+    initializeAppData();
+  }, [initializeAppData]);
+
+  // Alarm System
+  useEffect(() => {
+    const timer = setInterval(() => {
       const now = new Date();
       const currentMinute = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
-      if (currentMinute === lastNotifiedMinute) return;
-      activeMedications.forEach(med => {
-        med.reminders.forEach(reminder => {
-          if (reminder.enabled && reminder.time === currentMinute) {
-            triggerAlarm(med, reminder);
-            setLastNotifiedMinute(currentMinute);
-          }
-        });
-      });
-    };
-    const triggerAlarm = (med: Medication, reminder: Reminder) => {
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        new Notification(`Healthcare AI: ${med.name}`, {
-          body: `Time for your dose: ${reminder.message || med.dosage}`,
-          icon: 'https://cdn-icons-png.flaticon.com/512/883/883356.png'
+      
+      if (currentMinute !== lastNotifiedMinute) {
+        medications.forEach(med => {
+          med.reminders.forEach(rem => {
+            if (rem.enabled && rem.time === currentMinute) {
+              setActiveAlarm({ med, reminder: rem });
+              setLastNotifiedMinute(currentMinute);
+            }
+          });
         });
       }
-      setActiveAlarm({ med, reminder });
-    };
-    const intervalId = setInterval(checkAlarms, 15000);
-    return () => clearInterval(intervalId);
-  }, [activeMedications, lastNotifiedMinute, isInitialized]);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [medications, lastNotifiedMinute]);
 
-  const handleIdentitySuccess = async (user: { name: string; email: string, id?: string }) => {
+  const handleAuthSuccess = async (user: { name: string; email: string }) => {
     setLoading(true);
     try {
-      // dbService.activeEmail is already set inside dbService.signIn/signUp
       let profile = await dbService.getUserProfile();
-      
-      if (!profile || profile.email !== user.email) {
+      if (!profile) {
         profile = {
-          id: user.id || `user-${Math.random().toString(36).substr(2, 9)}`,
+          id: Math.random().toString(36).substr(2, 9),
           name: user.name,
           email: user.email,
           phone: '',
@@ -194,185 +151,294 @@ const App: React.FC = () => {
         };
         await dbService.saveUserProfile(profile);
       }
+      setAllProfiles([profile]);
+      setActiveProfileId(profile.id);
+      setIsInitialized(true);
+      
+      const [meds, records, logs] = await Promise.all([
+        dbService.getMedications(),
+        dbService.getAdherence(),
+        dbService.getLogs()
+      ]);
+      
+      setMedications(meds);
+      setAdherence(records);
+      setHealthLogs(logs);
     } catch (err) {
-      console.warn("Could not sync profile during login, continuing in local mode.");
+      console.warn("Sync failed after auth. Running locally.");
     } finally {
-      // Always call fetchData to finalize state and set isInitialized(true)
-      await fetchData();
+      setLoading(false);
     }
   };
 
-  const handleLogout = useCallback(() => {
-    // Immediate logout to satisfy "remove this" regarding any intrusive UI steps
-    dbService.clearActiveUser();
-    
-    // Reset All States
+  const handleLogout = async () => {
+    setIsInitialized(false);
+    setLoading(true);
+    await dbService.resetAll();
     setMedications([]);
     setAdherence([]);
     setHealthLogs([]);
     setAllProfiles([]);
     setActiveProfileId('');
-    
-    // Force clean Auth state
-    setLoading(false); 
-    setIsInitialized(false);
-    setActiveTab(NavigationTab.DASHBOARD);
-  }, []);
-
-  const handleSwitchProfile = (id: string) => {
-    setActiveProfileId(id);
-    setActiveTab(NavigationTab.DASHBOARD);
+    setLoading(false);
   };
 
-  const handleAddMedication = async (med: Omit<Medication, 'id' | 'profileId'>) => {
+  const handleMarkTaken = async (medId: string, time: string, date: string) => {
+    const newRecord: AdherenceRecord = {
+      date,
+      profileId: activeProfileId,
+      medicationId: medId,
+      taken: true,
+      timeTaken: time
+    };
+    
+    const updatedAdherence = [...adherence, newRecord];
+    setAdherence(updatedAdherence);
+    dbService.saveAdherence(updatedAdherence);
+
+    const updatedMeds = medications.map(m => 
+      m.id === medId ? { ...m, remaining: Math.max(0, m.remaining - 1) } : m
+    );
+    setMedications(updatedMeds);
+    dbService.saveMedications(updatedMeds);
+    
+    setLogDoseMed(null);
+    setActiveAlarm(null);
+  };
+
+  const handleAddMedication = async (medData: Omit<Medication, 'id' | 'profileId'>) => {
     const newMed: Medication = {
-      ...med,
+      ...medData,
       id: Math.random().toString(36).substr(2, 9),
       profileId: activeProfileId
     };
     const updatedMeds = [...medications, newMed];
     setMedications(updatedMeds);
+    dbService.saveMedications(updatedMeds);
     setIsMedicationFormOpen(false);
-    setIsSyncing(true);
-    await dbService.saveMedications(updatedMeds);
-    setIsSyncing(false);
   };
 
-  const handleDeleteMedication = async (medId: string) => {
-    if (!confirm("Delete this medication record from the database?")) return;
-    const updatedMeds = medications.filter(m => m.id !== medId);
+  const handleImportMeds = async (medsData: Omit<Medication, 'id' | 'profileId'>[]) => {
+    const newMeds: Medication[] = medsData.map(m => ({
+      ...m,
+      id: Math.random().toString(36).substr(2, 9),
+      profileId: activeProfileId
+    }));
+    const updatedMeds = [...medications, ...newMeds];
     setMedications(updatedMeds);
-    setIsSyncing(true);
-    await dbService.deleteMedication(medId);
-    setIsSyncing(false);
+    dbService.saveMedications(updatedMeds);
+    setIsPrescriptionScannerOpen(false);
   };
 
-  const handleUpdateProfile = async (newProfile: UserProfileType) => {
-    const updatedProfiles = allProfiles.map(p => p.id === newProfile.id ? newProfile : p);
-    setAllProfiles(updatedProfiles);
-    setIsSyncing(true);
-    await dbService.saveUserProfile(newProfile);
-    setIsSyncing(false);
+  const handleUpdateReminders = async (medId: string, reminders: Reminder[]) => {
+    const updatedMeds = medications.map(m => m.id === medId ? { ...m, reminders } : m);
+    setMedications(updatedMeds);
+    dbService.saveMedications(updatedMeds);
   };
 
-  const handleMarkTaken = async (medId: string, customTime?: string, customDate?: string) => {
-    const record: AdherenceRecord = {
-      date: customDate || new Date().toISOString().split('T')[0],
-      profileId: activeProfileId,
-      medicationId: medId,
-      taken: true,
-      timeTaken: customTime || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  const handleLogVital = async (logData: Omit<HealthLog, 'id' | 'profileId'>) => {
+    const newLog: HealthLog = {
+      ...logData,
+      id: Math.random().toString(36).substr(2, 9),
+      profileId: activeProfileId
     };
-    const updatedMeds = medications.map(m => m.id === medId ? { ...m, remaining: Math.max(0, m.remaining - 1) } : m);
-    setMedications(updatedMeds);
-    const updatedAdherence = [...adherence, record];
-    setAdherence(updatedAdherence);
-    setActiveAlarm(null);
-    setLogDoseMed(null);
-    setIsSyncing(true);
-    await Promise.all([dbService.saveMedications(updatedMeds), dbService.saveAdherence(updatedAdherence)]);
-    setIsSyncing(false);
+    const updatedLogs = [...healthLogs, newLog];
+    setHealthLogs(updatedLogs);
+    dbService.saveLogs(updatedLogs);
+    setIsLogVitalOpen(false);
   };
 
-  const renderContent = () => {
-    if (loading && !isInitialized) {
-      return (
-        <div className="flex flex-col items-center justify-center min-h-screen text-slate-400 bg-white">
-          <div className="relative mb-8">
-            <Loader2 size={64} className="animate-spin text-blue-600" />
-            <HeartPulse size={24} className="absolute inset-0 m-auto text-blue-400 animate-pulse" />
-          </div>
-          <h3 className="text-2xl font-black text-slate-800 tracking-tight">Accessing Health Database</h3>
-          <p className="text-slate-400 font-medium mt-2">Retrieving your secure medical records...</p>
+  const handleUpdateProfile = async (profile: UserProfileType) => {
+    setAllProfiles(prev => prev.map(p => p.id === profile.id ? profile : p));
+    dbService.saveUserProfile(profile);
+  };
+
+  if (loading && !isInitialized) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-8 text-center gap-6">
+        <div className="relative">
+          <div className="w-24 h-24 border-4 border-blue-50 border-t-blue-600 rounded-full animate-spin"></div>
+          <HeartPulse size={40} className="absolute inset-0 m-auto text-blue-500 animate-pulse" />
         </div>
-      );
-    }
-    switch (activeTab) {
-      case NavigationTab.DASHBOARD: return <Dashboard medications={activeMedications} adherence={activeAdherence} userProfile={activeProfile} onMarkTakenClick={(med) => setLogDoseMed(med)} onAddClick={() => setIsMedicationFormOpen(true)} />;
-      case NavigationTab.AI_CONSULT: return <AIConsultant />;
-      case NavigationTab.SCAN: return <MedicationScanner onAddMedication={handleAddMedication} />;
-      case NavigationTab.MEDICATIONS:
-        return (
-          <div className="space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-black text-slate-800 tracking-tight">Schedule for {activeProfile?.name || 'User'}</h2>
-                <p className="text-sm text-slate-500 font-medium">Synced with your secure medical database</p>
-              </div>
-              <button onClick={() => setIsMedicationFormOpen(true)} className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-100 flex items-center gap-2 active:scale-95 transition-all"><Plus size={18} strokeWidth={3} /> Add New Med</button>
-            </div>
-            {activeMedications.length === 0 ? (
-              <div className="bg-white p-20 rounded-[40px] border border-slate-200 text-center flex flex-col items-center shadow-sm">
-                <div className="w-20 h-20 bg-blue-50 text-blue-500 rounded-3xl flex items-center justify-center mb-6"><Pill size={40} /></div>
-                <h3 className="text-2xl font-black text-slate-800">No active medications</h3>
-                <p className="text-slate-500 max-w-sm mt-2">Add your first prescription to start tracking your health journey in our database.</p>
-                <button onClick={() => setIsMedicationFormOpen(true)} className="mt-8 px-10 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-xl">Start Adding</button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {activeMedications.map(med => (
-                  <div key={med.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between hover:shadow-md transition-all group">
-                    <div>
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center border border-blue-100 group-hover:scale-110 transition-transform"><Pill size={24} /></div>
-                        <div className="flex gap-2">
-                          <button onClick={() => setEditingReminders(med)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"><Settings size={18} /></button>
-                          <button onClick={() => handleDeleteMedication(med.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"><Trash2 size={18} /></button>
-                        </div>
-                      </div>
-                      <h3 className="text-xl font-black text-slate-800">{med.name}</h3>
-                      <p className="text-slate-500 text-sm mb-4 font-medium">{med.dosage} • {med.frequency}</p>
-                    </div>
-                    <div className="space-y-4 pt-4 border-t border-slate-100">
-                      <div className="flex justify-between items-center text-[11px] font-black text-slate-400 uppercase tracking-widest">
-                        <span>Stock Level</span>
-                        <span className={med.remaining < 5 ? 'text-orange-500' : 'text-slate-700'}>{med.remaining} Left</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div className={`h-full transition-all duration-1000 ${med.remaining < 5 ? 'bg-orange-500' : 'bg-blue-600'}`} style={{ width: `${(med.remaining / med.total) * 100}%` }}></div>
-                      </div>
-                      <button onClick={() => setLogDoseMed(med)} className="w-full py-3 bg-slate-900 text-white rounded-2xl font-bold text-sm hover:bg-black transition-all">Log Dose</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      case NavigationTab.PROFILE: return activeProfile ? <UserProfile profile={activeProfile} onUpdate={handleUpdateProfile} /> : null;
-      case NavigationTab.INSIGHTS: return <Insights medications={activeMedications} adherence={activeAdherence} healthLogs={activeLogs} onExport={() => {}} />;
-      case NavigationTab.HELP_CENTER: return <HelpCenter />;
-      default: return null;
-    }
-  };
+        <div className="space-y-2">
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Accessing Health Vault</h2>
+          <p className="text-slate-400 font-medium">Securing your medical data link...</p>
+        </div>
+      </div>
+    );
+  }
 
-  if (!isInitialized && !loading) {
-    return <Auth onAuthSuccess={handleIdentitySuccess} />;
+  if (!isInitialized) {
+    return <Auth onAuthSuccess={handleAuthSuccess} />;
   }
 
   return (
-    <div className="min-h-screen flex bg-slate-50 overflow-x-hidden transition-colors duration-300">
-      {isInitialized && (
-        <Sidebar 
-          activeTab={activeTab} 
-          setActiveTab={setActiveTab} 
-          onLogout={handleLogout} 
-          profiles={allProfiles}
-          activeProfileId={activeProfileId}
-          onSwitchProfile={handleSwitchProfile}
-          onAddProfile={() => setActiveTab(NavigationTab.PROFILE)}
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <Sidebar 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        onLogout={handleLogout}
+        profiles={allProfiles}
+        activeProfileId={activeProfileId}
+        onSwitchProfile={setActiveProfileId}
+        onAddProfile={() => {}}
+      />
+      <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} />
+
+      {isOffline && (
+        <div className="md:ml-64 fixed top-0 left-0 right-0 z-[60] bg-orange-500 text-white py-1.5 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-md">
+          <WifiOff size={12} /> Offline Mode - Reliable Local Database Active
+        </div>
+      )}
+
+      <main className={`md:ml-64 p-4 md:p-8 lg:p-12 pb-24 md:pb-8 ${isOffline ? 'pt-10' : ''}`}>
+        {activeTab === NavigationTab.DASHBOARD && (
+          <Dashboard 
+            medications={medications}
+            adherence={adherence}
+            userProfile={activeProfile}
+            onMarkTakenClick={setLogDoseMed}
+            onAddClick={() => setIsMedicationFormOpen(true)}
+            onLogVitalClick={() => setIsLogVitalOpen(true)}
+          />
+        )}
+        {activeTab === NavigationTab.MEDICATIONS && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-3xl font-black text-slate-900">Medications</h2>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setIsPrescriptionScannerOpen(true)}
+                  className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-100 transition-all border border-indigo-100"
+                >
+                  Bulk Import
+                </button>
+                <button 
+                  onClick={() => setIsMedicationFormOpen(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
+                >
+                  <Plus size={18} /> Add New
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {medications.length === 0 ? (
+                <div className="col-span-full py-20 text-center text-slate-400 font-medium bg-white rounded-[40px] border border-dashed border-slate-200">
+                  No medications tracked yet.
+                </div>
+              ) : (
+                medications.map(med => (
+                  <div key={med.id} className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm hover:shadow-md transition-all">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
+                        <Pill size={24} />
+                      </div>
+                      <button 
+                        onClick={() => setEditingReminders(med)}
+                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl"
+                      >
+                        <Settings size={20} />
+                      </button>
+                    </div>
+                    <h3 className="text-xl font-black text-slate-800 mb-1">{med.name}</h3>
+                    <p className="text-sm font-bold text-slate-500 mb-4">{med.dosage} • {med.frequency}</p>
+                    <div className="flex items-center justify-between mt-6">
+                      <div className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                        {med.remaining} Left
+                      </div>
+                      <button 
+                        onClick={() => setLogDoseMed(med)}
+                        className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black hover:bg-slate-800 transition-all"
+                      >
+                        Log Dose
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+        {activeTab === NavigationTab.HEALTH_SCANNER && (
+          <HealthScanner 
+            onAddMedication={handleAddMedication}
+            onConsultAI={(query, image) => {
+              setAiContext({ query, image });
+              setActiveTab(NavigationTab.AI_CONSULT);
+            }}
+          />
+        )}
+        {activeTab === NavigationTab.AI_CONSULT && (
+          <AIConsultant 
+            initialQuery={aiContext?.query}
+            initialImage={aiContext?.image}
+            onResetContext={() => setAiContext(null)}
+          />
+        )}
+        {activeTab === NavigationTab.INSIGHTS && (
+          <Insights 
+            medications={medications}
+            adherence={adherence}
+            healthLogs={healthLogs}
+            onExport={() => alert('Exporting medical records...')}
+          />
+        )}
+        {activeTab === NavigationTab.PROFILE && (
+          <UserProfile 
+            profile={activeProfile!}
+            onUpdate={handleUpdateProfile}
+            onLogout={handleLogout}
+          />
+        )}
+        {activeTab === NavigationTab.HELP_CENTER && <HelpCenter />}
+      </main>
+
+      {/* Overlays */}
+      {isMedicationFormOpen && (
+        <MedicationForm 
+          onClose={() => setIsMedicationFormOpen(false)}
+          onSave={handleAddMedication}
         />
       )}
-      <main className={`flex-1 ${isInitialized ? 'md:ml-64' : ''} p-4 md:p-8 pt-safe`}>
-        <div className="max-w-6xl mx-auto">
-          {renderContent()}
-        </div>
-      </main>
-      {isInitialized && <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} />}
-      {editingReminders && <ReminderSettings medication={editingReminders} onClose={() => setEditingReminders(null)} onUpdateReminders={(id, rems) => { const updatedMeds = medications.map(m => m.id === id ? { ...m, reminders: rems } : m); setMedications(updatedMeds); dbService.saveMedications(updatedMeds); setEditingReminders(null); }} />}
-      {isMedicationFormOpen && <MedicationForm onClose={() => setIsMedicationFormOpen(false)} onSave={handleAddMedication} />}
-      {logDoseMed && <LogDoseModal medication={logDoseMed} onClose={() => setLogDoseMed(null)} onLog={handleMarkTaken} />}
-      {activeAlarm && <MedicationAlarm medication={activeAlarm.med} reminder={activeAlarm.reminder} onDismiss={() => setActiveAlarm(null)} onTake={(id) => setLogDoseMed(activeMedications.find(m => m.id === id) || null)} />}
+      {isLogVitalOpen && (
+        <LogVitalModal 
+          onClose={() => setIsLogVitalOpen(false)}
+          onLog={handleLogVital}
+        />
+      )}
+      {logDoseMed && (
+        <LogDoseModal 
+          medication={logDoseMed}
+          onClose={() => setLogDoseMed(null)}
+          onLog={handleMarkTaken}
+        />
+      )}
+      {editingReminders && (
+        <ReminderSettings 
+          medication={editingReminders}
+          onClose={() => setEditingReminders(null)}
+          onUpdateReminders={handleUpdateReminders}
+        />
+      )}
+      {isPrescriptionScannerOpen && (
+        <PrescriptionScanner 
+          onClose={() => setIsPrescriptionScannerOpen(false)}
+          onImport={handleImportMeds}
+        />
+      )}
+      {activeAlarm && (
+        <MedicationAlarm 
+          medication={activeAlarm.med}
+          reminder={activeAlarm.reminder}
+          onDismiss={() => setActiveAlarm(null)}
+          onTake={(id) => {
+            const now = new Date();
+            const time = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+            const date = now.toISOString().split('T')[0];
+            handleMarkTaken(id, time, date);
+          }}
+        />
+      )}
     </div>
   );
 };

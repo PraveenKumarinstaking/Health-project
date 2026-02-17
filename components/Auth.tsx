@@ -13,10 +13,9 @@ import {
   AlertCircle,
   Loader2,
   Database,
-  UserPlus,
   WifiOff,
-  Zap,
-  Globe
+  Wifi,
+  CheckCircle2
 } from 'lucide-react';
 import { dbService } from '../services/dbService';
 
@@ -28,7 +27,8 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<{ message: string; type?: 'NOT_FOUND' | 'INVALID_PASS' | 'SERVER_OFFLINE' } | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; type?: 'NOT_FOUND' | 'INVALID_PASS' | 'CONFIRMATION_REQUIRED' | 'SERVER_OFFLINE' | 'CONNECTION_ERROR' } | null>(null);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -39,39 +39,14 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
   const handleToggleMode = () => {
     setIsLogin(!isLogin);
     setError(null);
-  };
-
-  const handleDemoAccess = async () => {
-    setIsLoading(true);
-    try {
-      const response = await dbService.signIn("admin@example.com", "password123");
-      onAuthSuccess(response.user);
-    } catch (err) {
-      setError({ message: "Demo access failed. Reset your local vault." });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleBypassOffline = () => {
-    // Force a purely local guest session
-    const email = formData.email || "guest@local.health";
-    const name = formData.name || "Guest User";
-    dbService.setActiveUser(email);
-    onAuthSuccess({ name, email });
-  };
-
-  const handleResetVault = () => {
-    if (confirm("This will clear all local health data and user accounts. Continue?")) {
-      dbService.resetAll();
-      window.location.reload();
-    }
+    setSuccessMsg(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
+    setSuccessMsg(null);
 
     try {
       if (isLogin) {
@@ -82,16 +57,31 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
         if (formData.password.length < 6) throw new Error("Password must be at least 6 characters");
         
         const response = await dbService.signUp(formData.name, formData.email, formData.password);
-        onAuthSuccess(response.user);
+        
+        if (response.status === "confirmation_required") {
+          setSuccessMsg("Account created! Please check your email for a verification link before signing in.");
+          setIsLogin(true); // Move to sign in mode after successful sign up
+        } else if (response.user) {
+          onAuthSuccess(response.user);
+        }
       }
     } catch (err: any) {
-      console.error("Auth Error:", err.message);
-      if (err.message === "ACCOUNT_NOT_FOUND") {
-        setError({ message: "No record of this account in your secure vault.", type: 'NOT_FOUND' });
-      } else if (err.message === "INVALID_PASSWORD") {
-        setError({ message: "Incorrect password. Access denied.", type: 'INVALID_PASS' });
-      } else if (err.message === "SERVER_OFFLINE") {
-        setError({ message: "Secure medical server unreachable.", type: 'SERVER_OFFLINE' });
+      const msg = err.message || "";
+      const lowerMsg = msg.toLowerCase();
+      
+      if (lowerMsg.includes("email not confirmed") || lowerMsg.includes("email_not_confirmed")) {
+        setError({ 
+          message: "Email verification required. Please check your inbox for the confirmation link.", 
+          type: 'CONFIRMATION_REQUIRED' 
+        });
+        setIsLogin(true); // Ensure they are on the login form to see the error
+      } else if (msg === "CONNECTION_ERROR") {
+        setError({ 
+          message: "Unable to reach health database server.", 
+          type: 'CONNECTION_ERROR' 
+        });
+      } else if (lowerMsg.includes("invalid login credentials") || lowerMsg.includes("invalid credentials")) {
+        setError({ message: "Incorrect email or password. Access denied.", type: 'INVALID_PASS' });
       } else {
         setError({ message: err.message || "Authentication failed. Try again." });
       }
@@ -120,13 +110,13 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
             <span className="text-blue-600">management.</span>
           </h2>
           <p className="text-lg text-slate-500 font-medium leading-relaxed mb-10">
-            A secure, local-first platform designed to help you stay on track with medications and health insights.
+            A secure, HIPAA-ready platform designed to help you stay on track with medications and health insights.
           </p>
           <div className="space-y-6">
             {[
-              { icon: ShieldCheck, title: "Private & Secure", desc: "Data is encrypted and stored in your personal vault." },
+              { icon: ShieldCheck, title: "Private & Secure", desc: "Data is encrypted and stored in your Supabase vault." },
               { icon: Sparkles, title: "AI Guided", desc: "Powered by Gemini for deep medication analysis." },
-              { icon: Database, title: "Hybrid Connectivity", desc: "Full access even when you're completely offline." }
+              { icon: Database, title: "Cloud Synchronization", desc: "Access your records across any authorized device." }
             ].map((item, i) => (
               <div key={i} className="flex gap-4">
                 <div className="shrink-0 w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-blue-600 shadow-sm">
@@ -149,6 +139,7 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
             <HeartPulse className="text-blue-600" size={32} />
             <h1 className="text-2xl font-black text-slate-900 tracking-tight">Healthcare AI</h1>
           </div>
+          
           <div className="mb-10">
             <h3 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">
               {isLogin ? 'Sign In' : 'Create Account'}
@@ -157,7 +148,15 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
               {isLogin ? 'Access your secure healthcare dashboard.' : 'Join us to start managing your health better.'}
             </p>
           </div>
+
           <form onSubmit={handleSubmit} className="space-y-5">
+            {successMsg && (
+              <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl text-emerald-700 text-xs font-bold flex items-start gap-3 animate-in slide-in-from-top-2">
+                <CheckCircle2 size={18} className="shrink-0 mt-0.5" />
+                <p>{successMsg}</p>
+              </div>
+            )}
+
             {!isLogin && (
               <div className="space-y-1.5 animate-in slide-in-from-top-2">
                 <label className="block text-xs font-bold text-slate-700 ml-1">Full Name</label>
@@ -218,44 +217,23 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
             </div>
             
             {error && (
-              <div className="p-5 bg-red-50 border border-red-100 rounded-3xl text-red-600 text-xs font-bold flex flex-col gap-4 animate-in shake">
+              <div className={`p-5 rounded-3xl text-xs font-bold flex flex-col gap-4 animate-in shake ${error.type === 'CONNECTION_ERROR' ? 'bg-orange-50 border border-orange-100 text-orange-700' : 'bg-red-50 border border-red-100 text-red-600'}`}>
                 <div className="flex items-start gap-3">
-                  {error.type === 'SERVER_OFFLINE' ? <WifiOff size={18} className="shrink-0 mt-0.5" /> : <AlertCircle size={18} className="shrink-0 mt-0.5" />}
-                  <div className="space-y-1">
-                    <p className="text-sm">{error.message}</p>
-                    <p className="opacity-60 font-medium">Please check your internet or use the demo login below.</p>
+                  {error.type === 'CONNECTION_ERROR' ? <WifiOff size={18} className="shrink-0 mt-0.5" /> : <AlertCircle size={18} className="shrink-0 mt-0.5" />}
+                  <div className="space-y-2">
+                    <p className="text-sm font-black">{error.message}</p>
+                    
+                    {error.type === 'CONNECTION_ERROR' && (
+                      <div className="p-3 bg-white/50 rounded-xl border border-orange-200 text-[10px] text-orange-800 leading-relaxed font-medium">
+                        <p className="font-black uppercase mb-1 flex items-center gap-1">
+                          <Wifi size={10} /> Troubleshooting
+                        </p>
+                        1. Check your internet connection.<br/>
+                        2. Ensure ad-blockers aren't blocking Supabase.<br/>
+                        3. Verify your Supabase project isn't "Paused".
+                      </div>
+                    )}
                   </div>
-                </div>
-                
-                <div className="grid grid-cols-1 gap-2">
-                  {error.type === 'NOT_FOUND' && (
-                    <button 
-                      type="button"
-                      onClick={handleToggleMode}
-                      className="w-full py-3 bg-blue-600 text-white rounded-xl font-black shadow-md flex items-center justify-center gap-2 hover:bg-blue-700 transition-all"
-                    >
-                      <UserPlus size={16} /> Create Account Instead
-                    </button>
-                  )}
-
-                  {error.type === 'SERVER_OFFLINE' && (
-                    <>
-                      <button 
-                        type="button"
-                        onClick={handleBypassOffline}
-                        className="w-full py-3 bg-slate-900 text-white rounded-xl font-black shadow-md flex items-center justify-center gap-2 hover:bg-black transition-all"
-                      >
-                        <Zap size={16} fill="currentColor" /> Emergency Local Access
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={handleDemoAccess}
-                        className="w-full py-3 bg-white border-2 border-slate-200 text-slate-800 rounded-xl font-black flex items-center justify-center gap-2 hover:bg-slate-50 transition-all"
-                      >
-                        <Globe size={16} /> Quick Demo Access
-                      </button>
-                    </>
-                  )}
                 </div>
               </div>
             )}
@@ -277,15 +255,6 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
           </form>
 
           <div className="mt-10 text-center space-y-4">
-            {!error && isLogin && (
-              <button 
-                onClick={handleDemoAccess}
-                className="text-xs font-bold text-slate-400 hover:text-blue-600 transition-colors uppercase tracking-widest"
-              >
-                Use Demo Credentials
-              </button>
-            )}
-
             <p className="text-sm font-medium text-slate-500">
               {isLogin ? "Don't have an account?" : "Already have an account?"}{' '}
               <button 
@@ -295,13 +264,6 @@ const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
                 {isLogin ? 'Sign up' : 'Log in'}
               </button>
             </p>
-            
-            <button 
-              onClick={handleResetVault}
-              className="text-[10px] text-slate-300 uppercase font-black tracking-widest hover:text-red-400 transition-colors"
-            >
-              System Reset
-            </button>
           </div>
         </div>
       </div>
