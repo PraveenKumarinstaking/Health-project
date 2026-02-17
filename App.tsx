@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
@@ -22,12 +21,14 @@ import {
   Settings,
   Plus,
   HeartPulse,
-  WifiOff
+  WifiOff,
+  Menu
 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<NavigationTab>(NavigationTab.DASHBOARD);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   
   // Data State
   const [medications, setMedications] = useState<Medication[]>([]);
@@ -63,11 +64,8 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Optimized initialization for zero-latency load
   const initializeAppData = useCallback(async () => {
     setLoading(true);
-    
-    // Step 1: Immediate local data recovery
     const email = dbService.activeEmail;
     if (email && email !== 'anonymous') {
       const cachedProfile = dbService.getLocal('user_profile', null);
@@ -82,19 +80,16 @@ const App: React.FC = () => {
       }
     }
 
-    // Step 2: Background sync (does not block UI if local cache exists)
     try {
       const profile = await dbService.getUserProfile();
       if (profile) {
         setAllProfiles([profile]);
         setActiveProfileId(profile.id);
-        
         const [meds, records, logs] = await Promise.all([
           dbService.getMedications(),
           dbService.getAdherence(),
           dbService.getLogs()
         ]);
-        
         setMedications(meds);
         setAdherence(records);
         setHealthLogs(logs);
@@ -103,7 +98,6 @@ const App: React.FC = () => {
         setIsInitialized(false);
       }
     } catch (error) {
-      console.warn("Background sync failed. Offline mode active.");
       setIsOffline(true);
     } finally {
       setLoading(false);
@@ -114,12 +108,10 @@ const App: React.FC = () => {
     initializeAppData();
   }, [initializeAppData]);
 
-  // Alarm System
   useEffect(() => {
     const timer = setInterval(() => {
       const now = new Date();
       const currentMinute = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
-      
       if (currentMinute !== lastNotifiedMinute) {
         medications.forEach(med => {
           med.reminders.forEach(rem => {
@@ -154,18 +146,16 @@ const App: React.FC = () => {
       setAllProfiles([profile]);
       setActiveProfileId(profile.id);
       setIsInitialized(true);
-      
       const [meds, records, logs] = await Promise.all([
         dbService.getMedications(),
         dbService.getAdherence(),
         dbService.getLogs()
       ]);
-      
       setMedications(meds);
       setAdherence(records);
       setHealthLogs(logs);
     } catch (err) {
-      console.warn("Sync failed after auth. Running locally.");
+      console.warn("Sync failed after auth.");
     } finally {
       setLoading(false);
     }
@@ -191,7 +181,6 @@ const App: React.FC = () => {
       taken: true,
       timeTaken: time
     };
-    
     const updatedAdherence = [...adherence, newRecord];
     setAdherence(updatedAdherence);
     dbService.saveAdherence(updatedAdherence);
@@ -201,7 +190,6 @@ const App: React.FC = () => {
     );
     setMedications(updatedMeds);
     dbService.saveMedications(updatedMeds);
-    
     setLogDoseMed(null);
     setActiveAlarm(null);
   };
@@ -282,16 +270,41 @@ const App: React.FC = () => {
         activeProfileId={activeProfileId}
         onSwitchProfile={setActiveProfileId}
         onAddProfile={() => {}}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
+      
+      {/* Mobile Top Header */}
+      <header className="md:hidden sticky top-0 left-0 right-0 bg-white border-b border-slate-200 h-16 flex items-center justify-between px-4 z-30">
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => setIsSidebarOpen(true)}
+            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+          >
+            <Menu size={24} />
+          </button>
+          <div className="flex items-center gap-2">
+            <HeartPulse className="text-blue-600 w-6 h-6" />
+            <span className="font-bold text-slate-900 text-sm">Healthcare AI</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {isOffline && <WifiOff size={16} className="text-orange-500" />}
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-xs font-bold">
+            {activeProfile?.name?.charAt(0) || 'U'}
+          </div>
+        </div>
+      </header>
+
       <MobileNav activeTab={activeTab} setActiveTab={setActiveTab} />
 
       {isOffline && (
-        <div className="md:ml-64 fixed top-0 left-0 right-0 z-[60] bg-orange-500 text-white py-1.5 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-md">
-          <WifiOff size={12} /> Offline Mode - Reliable Local Database Active
+        <div className="md:ml-64 fixed top-0 md:top-0 left-0 right-0 z-[60] bg-orange-500 text-white py-1.5 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-md">
+          <WifiOff size={12} /> Offline Mode Active
         </div>
       )}
 
-      <main className={`md:ml-64 p-4 md:p-8 lg:p-12 pb-24 md:pb-8 ${isOffline ? 'pt-10' : ''}`}>
+      <main className={`md:ml-64 p-4 md:p-8 lg:p-12 pb-24 md:pb-8 transition-all`}>
         {activeTab === NavigationTab.DASHBOARD && (
           <Dashboard 
             medications={medications}
@@ -304,51 +317,51 @@ const App: React.FC = () => {
         )}
         {activeTab === NavigationTab.MEDICATIONS && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-3xl font-black text-slate-900">Medications</h2>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <h2 className="text-2xl md:text-3xl font-black text-slate-900">Medications</h2>
               <div className="flex gap-2">
                 <button 
                   onClick={() => setIsPrescriptionScannerOpen(true)}
-                  className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold flex items-center gap-2 hover:bg-indigo-100 transition-all border border-indigo-100"
+                  className="flex-1 sm:flex-none px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-indigo-100 transition-all border border-indigo-100 text-sm"
                 >
-                  Bulk Import
+                  Import
                 </button>
                 <button 
                   onClick={() => setIsMedicationFormOpen(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-all shadow-lg shadow-blue-100"
+                  className="flex-1 sm:flex-none px-4 py-2 bg-blue-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-700 transition-all shadow-lg text-sm"
                 >
-                  <Plus size={18} /> Add New
+                  <Plus size={18} /> New
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {medications.length === 0 ? (
-                <div className="col-span-full py-20 text-center text-slate-400 font-medium bg-white rounded-[40px] border border-dashed border-slate-200">
+                <div className="col-span-full py-20 text-center text-slate-400 font-medium bg-white rounded-2xl border border-dashed border-slate-200">
                   No medications tracked yet.
                 </div>
               ) : (
                 medications.map(med => (
-                  <div key={med.id} className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm hover:shadow-md transition-all">
+                  <div key={med.id} className="card p-6 hover:shadow-md transition-all">
                     <div className="flex justify-between items-start mb-4">
-                      <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
-                        <Pill size={24} />
+                      <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
+                        <Pill size={20} />
                       </div>
                       <button 
                         onClick={() => setEditingReminders(med)}
-                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl"
+                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
                       >
-                        <Settings size={20} />
+                        <Settings size={18} />
                       </button>
                     </div>
-                    <h3 className="text-xl font-black text-slate-800 mb-1">{med.name}</h3>
-                    <p className="text-sm font-bold text-slate-500 mb-4">{med.dosage} • {med.frequency}</p>
+                    <h3 className="text-lg font-bold text-slate-800 mb-1">{med.name}</h3>
+                    <p className="text-xs font-semibold text-slate-500 mb-4">{med.dosage} • {med.frequency}</p>
                     <div className="flex items-center justify-between mt-6">
-                      <div className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                        {med.remaining} Left
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                        {med.remaining} Units Left
                       </div>
                       <button 
                         onClick={() => setLogDoseMed(med)}
-                        className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-black hover:bg-slate-800 transition-all"
+                        className="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-[10px] font-black hover:bg-slate-800 transition-all"
                       >
                         Log Dose
                       </button>
