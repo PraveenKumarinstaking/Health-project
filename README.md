@@ -12,7 +12,7 @@ Medixo helps elderly and chronic patients who receive prescriptions from multipl
 ## 👥 Team
 
 - **Swathi N** – Business Analyst
-- **Keerthana G** – Research & Documentation
+- **Keerthana G** – Documentation
 - **Praveen N** – Frontend Developer
 - **Prasanna V** – Generative AI Engineer
 - **Umaiyaoandiyan B** – Backend Developer
