@@ -1,11 +1,11 @@
-# MediShield AI 🚀
+# Medixo🚀
 
 > AI-powered medication safety platform that prevents harmful drug interactions by securely unifying prescriptions from multiple doctors
 ---
 
 ## 🎯 What It Does
 
-MediShield AI helps elderly and chronic patients who receive prescriptions from multiple doctors by creating a unified digital medication record. Using AI, OCR, and trusted medical knowledge, it detects dangerous drug interactions, duplicate medications, dosage conflicts, and securely shares records with doctors only through patient-approved consent.
+Medixo helps elderly and chronic patients who receive prescriptions from multiple doctors by creating a unified digital medication record. Using AI, OCR, and trusted medical knowledge, it detects dangerous drug interactions, duplicate medications, dosage conflicts, and securely shares records with doctors only through patient-approved consent.
 
 ---
 
@@ -14,7 +14,7 @@ MediShield AI helps elderly and chronic patients who receive prescriptions from 
 - **Swathi N** – Business Analyst
 - **Keerthana G** – Research & Documentation
 - **Praveen N** – Frontend Developer
-- **Prasanna V** – AI Model
+- **Prasanna V** – Generative AI Engineer
 - **Umaiyaoandiyan B** – Backend Developer
 
 ---
@@ -24,7 +24,7 @@ MediShield AI helps elderly and chronic patients who receive prescriptions from 
 ### Prerequisites
 
 - React
-- MongoDB
+- Supabase
 - Git
 - Python 3.10+
 - API Key (Gemini/OpenAI)
@@ -82,13 +82,12 @@ npm run dev
 - Express.js (Node.js)
 
 ### Database
-- MongoDB
 - Supabase (PostgreSQL)
 
 ### AI/ML
 - LangChain (RAG)
 - FAISS Vector Database
-- Claude API
+- Gemini API
 - Tesseract OCR
 - Whisper Speech-to-Text
 - LLM (JarvisLabs)
@@ -109,7 +108,7 @@ Patients, especially elderly individuals, often consult multiple specialists who
 
 ## 💡 Our Solution
 
-MediShield AI acts as a centralized medication safety platform that securely stores prescriptions, continuously checks all active medicines using AI, alerts patients about potential risks, and allows verified doctors to access records only with patient consent.
+Medixo acts as a centralized medication safety platform that securely stores prescriptions, continuously checks all active medicines using AI, alerts patients about potential risks, and allows verified doctors to access records only with patient consent.
 
 ---
 
@@ -171,7 +170,7 @@ MediShield AI acts as a centralized medication safety platform that securely sto
 
 ## ⭐ One-line Project Pitch
 
-*"MediShield AI is an intelligent medication safety platform that unifies medical records, detects dangerous drug interactions, prevents medication errors, and empowers patients with AI-driven healthcare assistance."*
+*"Medixo is an intelligent medication safety platform that unifies medical records, detects dangerous drug interactions, prevents medication errors, and empowers patients with AI-driven healthcare assistance."*
 
 ---
 
